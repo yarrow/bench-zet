@@ -20,6 +20,7 @@ const SIZES: [u64; 4] = [6, 12, 24, 36];
 
 fn main() -> Result<()> {
     fs::write("compare.sh", comparison_script())?;
+    fs::write("self-compare.sh", self_comparison_script())?;
     for size in SIZES {
         make_large_file(size)?;
     }
@@ -90,19 +91,23 @@ const TIME: &str = "/opt/homebrew/bin/gtime";
 const PURGE: &str = "sync; sudo purge";
 
 const ZET: &str = "./zet-0.2.5";
-const STATS: &str = "comparison.txt";
+const COMPARISON_TXT: &str = "comparison.txt";
 
-fn timed(command: &str, arguments: &str) -> String {
-    format!("{PURGE}\n{TIME} -f '%e %F %M %C' {command} {arguments} > /dev/null 2>>{STATS}\n")
+fn timed(command: &str, arguments: &str, output: &str) -> String {
+    format!("{PURGE}\n{TIME} -f '%e %F %M %C' {command} {arguments} > /dev/null 2>>{output}\n")
 }
 fn compare(zet_subcommand: &str, unix_command: &str, arguments: &str) -> String {
-    let mut commands = timed(&format!("{ZET} {zet_subcommand}"), arguments);
-    commands.push_str(&timed(unix_command, arguments));
+    let mut commands = timed(
+        &format!("{ZET} {zet_subcommand}"),
+        arguments,
+        COMPARISON_TXT,
+    );
+    commands.push_str(&timed(unix_command, arguments, COMPARISON_TXT));
     commands
 }
 fn comparison_script() -> String {
     let mut script: Vec<String> = vec![
-        format!("cp /dev/null {STATS}\n"),
+        format!("cp /dev/null {COMPARISON_TXT}\n"),
         compare("union", "uniq", "sorted-a.csv"),
         compare("single", "uniq -u", "sorted-a.csv"),
         compare("multiple", "uniq -d", "sorted-a.csv"),
@@ -117,5 +122,24 @@ fn comparison_script() -> String {
     script.push(format!(
         "/usr/bin/time -lp {ZET} union 36G.csv > /dev/null 2>mac-zet-stats.txt\n"
     ));
+    script.join("")
+}
+
+const OLD_ZET: &str = "./zet-0.2.0";
+const ZETS: [&str; 2] = [OLD_ZET, ZET];
+const SELF_COMPARISON_TXT: &str = "self-comparison.txt";
+fn self_compare(zet_subcommand: &str) -> String {
+    ZETS.map(|z| {
+        timed(
+            &format!("{z} {zet_subcommand}"),
+            "a.csv b.csv c.csv",
+            SELF_COMPARISON_TXT,
+        )
+    })
+    .join("")
+}
+fn self_comparison_script() -> String {
+    let mut script: Vec<String> = vec![format!("cp /dev/null {SELF_COMPARISON_TXT}\n")];
+    script.extend(["intersect", "union", "diff", "single", "multiple"].map(|s| self_compare(s)));
     script.join("")
 }
